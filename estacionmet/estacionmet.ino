@@ -1,4 +1,3 @@
-#include <ESP8266WiFi.h>
 #include "DHT.h"        // including the library of DHT11 temperature and humidity sensor
 #define DHTTYPE DHT22   // DHT 11
 #include <Wire.h>      // libreria de comunicacion por I2C
@@ -6,7 +5,8 @@
 #include <LiquidCrystal_I2C.h>    // libreria para LCD por I2C
 #include <Adafruit_Sensor.h>
 #include <DHT_U.h>
-
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 
 // librerias
 // https://github.com/adafruit/DHT-sensor-library
@@ -52,6 +52,14 @@ byte housechar4[8]={B11111, B11111, B11111, B10001, //Row 1, Col 1
 // creamos el objeto lcd
 LiquidCrystal_I2C lcd (0x27, 2, 1, 0, 4, 5, 6, 7); // DIR, E, RW, RS, D4, D5, D6, D7
 
+//#define SERVER_IP "10.0.1.7:9080" // PC address with emulation on host
+#define SERVER_IP "192.168.137.1"
+
+#ifndef STASSID
+#define STASSID "dell"
+#define STAPSK  "zero1234"
+#endif
+
 void setup(void)
 { 
 
@@ -62,31 +70,23 @@ void setup(void)
 
   firmware_version();
 
-
   Serial.begin(9600);
   Serial.println();
+  dht.begin();
 
+  WiFi.begin(STASSID, STAPSK);
 
-  // pruebas de wifi
-
-  WiFi.begin("dell", "zero1234");
-
-  Serial.print("Conectando");
-  while (WiFi.status() != WL_CONNECTED)
-  {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println();
-
-  Serial.print("Conectado, dirección IP: ");
+  Serial.println("");
+  Serial.print("Conectado! IP address: ");
   Serial.println(WiFi.localIP());
 
-  // fin pruebas de wifi
-
-    dht.begin();
-
 }
+
+
 void loop() {
     float h = dht.readHumidity();
     float t = dht.readTemperature();         
@@ -141,7 +141,61 @@ void loop() {
     lcd.print(h);
     delay(3000);
 
+    envia_post(t,h);
+    
 }
+
+void envia_post(float t, float h)
+{
+
+    Serial.print("Temperatura: ");
+    Serial.println(t);
+    Serial.print("Humedad: ");
+    Serial.println(h);
+
+  if ((WiFi.status() == WL_CONNECTED)) {
+
+    WiFiClient client;
+    HTTPClient http;
+
+    Serial.print("[HTTP] begin...\n");
+    // configure traged server and url
+    http.begin(client, "http://" SERVER_IP "/apimet/public/api/v1/registro"); //HTTP
+    http.addHeader("Content-Type", "application/json");
+
+
+    Serial.print("[HTTP] POST...\n");
+    // start connection and send HTTP header and body
+    // int httpCode = http.POST("{\"dispositivo_id\":\"1\"}");
+    // int httpCode = http.POST("{\"dispositivo_id\":\"1\",\"temperatura\":\"10\"}");
+    //{\"hello\":\"world\",\"temperatura\":\"10\"}
+    // int httpCode = http.POST("{\"dispositivo_id\":\"1\",\"temperatura\":\"10\",\"humedad\":\"11\",\"presion_atmosferica\":\"12\",\"velocidad_viento\":\"13\"}");
+    int httpCode = http.POST("{\"dispositivo_id\":\"1\",\"temperatura\":\"" + String(t, 2) + "\",\"humedad\":\"" + String(h, 2) + "\",\"presion_atmosferica\":\"12\",\"velocidad_viento\":\"13\"}");
+    // {\"dispositivo_id\":\"1\",\"temperatura\":\"10\",\"humedad\":\"11\",\"presion_atmosferica\":\"12\",\"velocidad_viento\":\"13\"}
+
+    // httpCode will be negative on error
+    if (httpCode > 0) {
+      // HTTP header has been send and Server response header has been handled
+      Serial.printf("[HTTP] POST... code: %d\n", httpCode);
+
+      // file found at server
+      if (httpCode == HTTP_CODE_OK) {
+        const String& payload = http.getString();
+        Serial.println("received payload:\n<<");
+        Serial.println(payload);
+        Serial.println(">>");
+      }
+    } else {
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  }
+   
+    
+}
+
+
 
 
 void firmware_version()
